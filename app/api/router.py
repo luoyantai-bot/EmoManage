@@ -15,6 +15,7 @@ from app.api.devices import router as devices_router
 from app.api.measurements import router as measurements_router
 from app.api.webhooks import router as webhooks_router
 from app.api.realtime import router as realtime_router
+from app.api.analysis import router as analysis_router
 
 
 # Create main router
@@ -55,4 +56,10 @@ api_router.include_router(
     realtime_router,
     prefix="/realtime",
     tags=["Real-time Data"]
+)
+
+api_router.include_router(
+    analysis_router,
+    prefix="/analysis",
+    tags=["Health Analysis"]
 )

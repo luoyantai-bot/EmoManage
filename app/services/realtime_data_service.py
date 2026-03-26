@@ -9,6 +9,7 @@ Provides:
 - Get recent data from Redis Stream
 - Check device active status
 - Start/end measurement sessions
+- Calculate derived metrics using algorithm engine
 """
 
 import json
@@ -23,6 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.device import Device
 from app.models.measurement import MeasurementRecord
 from app.services.redis_client import RedisClient, RedisKeys
+from app.services.algorithm_engine import (
+    MockAlgorithmEngine,
+    RawDataPoint,
+    DerivedMetrics
+)
 
 
 class RealtimeDataService:
@@ -33,6 +39,7 @@ class RealtimeDataService:
     - Fetching latest/recent data from Redis
     - Checking device active status
     - Managing measurement sessions
+    - Calculating derived health metrics
     """
     
     def __init__(self, db: AsyncSession, redis: RedisClient):
@@ -45,6 +52,7 @@ class RealtimeDataService:
         """
         self.db = db
         self.redis = redis
+        self.algorithm_engine = MockAlgorithmEngine()
     
     # ===========================================
     # Data Retrieval
@@ -324,10 +332,12 @@ class RealtimeDataService:
         """
         End a measurement session
         
-        1. Aggregate all data from Redis Stream
-        2. Calculate raw_data_summary
-        3. Update MeasurementRecord
-        4. Return updated record
+        1. Get all data from Redis Stream for this session
+        2. Convert to List[RawDataPoint]
+        3. Call MockAlgorithmEngine.calculate() for derived metrics
+        4. Store raw_data_summary and derived_metrics
+        5. Update status to "processing"
+        6. Trigger AI analysis task (Phase 4)
         
         Args:
             device_code: Device code
@@ -357,13 +367,30 @@ class RealtimeDataService:
             logger.error(f"Measurement record not found: {record_id}")
             return None
         
-        # Get session data
+        # Get session data from Redis
         if record.start_time:
             session_data = await self.get_data_for_session(device_code, record.start_time)
         else:
             session_data = []
         
-        # Calculate raw_data_summary
+        # Convert to RawDataPoint list for algorithm engine
+        raw_data_points = self._convert_to_raw_data_points(session_data)
+        
+        # Calculate derived metrics using algorithm engine
+        derived_metrics = None
+        try:
+            if len(raw_data_points) >= self.algorithm_engine.MIN_DATA_POINTS:
+                derived_metrics = self.algorithm_engine.calculate(raw_data_points)
+                logger.info(f"Calculated derived metrics: HRV={derived_metrics.hrv_score}, "
+                           f"Stress={derived_metrics.stress_index}, "
+                           f"Score={derived_metrics.overall_health_score}")
+            else:
+                logger.warning(f"Insufficient data points: {len(raw_data_points)} < "
+                              f"{self.algorithm_engine.MIN_DATA_POINTS}")
+        except Exception as e:
+            logger.error(f"Failed to calculate derived metrics: {e}")
+        
+        # Calculate raw_data_summary (basic aggregation)
         raw_data_summary = self._aggregate_session_data(session_data)
         
         # Update record
@@ -374,6 +401,11 @@ class RealtimeDataService:
         if record.start_time:
             duration = record.end_time - record.start_time
             record.duration_minutes = int(duration.total_seconds() / 60)
+        
+        # Store derived metrics if calculated
+        if derived_metrics:
+            record.derived_metrics = derived_metrics.to_dict()
+            record.health_score = derived_metrics.overall_health_score
         
         # Update device status
         device_result = await self.db.execute(
@@ -390,7 +422,75 @@ class RealtimeDataService:
         await self.redis.delete_device_session(device_code)
         
         logger.info(f"Ended measurement session: {record.id}, duration: {record.duration_minutes} min")
+        
+        # TODO: Trigger AI analysis task (Phase 4)
+        # await trigger_ai_analysis(str(record.id))
+        
         return record
+    
+    def _convert_to_raw_data_points(
+        self,
+        session_data: List[Dict[str, Any]]
+    ) -> List[RawDataPoint]:
+        """
+        Convert session data dicts to RawDataPoint objects
+        
+        Args:
+            session_data: List of data dictionaries from Redis
+        
+        Returns:
+            List of RawDataPoint objects
+        """
+        points = []
+        
+        for entry in session_data:
+            try:
+                # Extract values, handling both snake_case and camelCase keys
+                heart_rate = self._parse_int(
+                    entry.get("heart_rate") or entry.get("heartRate")
+                )
+                breathing = self._parse_int(entry.get("breathing"))
+                bed_status = self._parse_int(
+                    entry.get("bed_status") or entry.get("bedStatus"),
+                    default=1
+                )
+                sleep_status = self._parse_int(
+                    entry.get("sleep_status") or entry.get("sleepStatus"),
+                    default=1
+                )
+                signal = self._parse_int(entry.get("signal"))
+                sos_type = entry.get("sos_type") or entry.get("sosType")
+                timestamp = entry.get("timestamp") or entry.get("received_at") or ""
+                
+                # Skip invalid entries
+                if heart_rate is None or heart_rate <= 0:
+                    continue
+                
+                point = RawDataPoint(
+                    heart_rate=heart_rate,
+                    breathing=breathing or 0,
+                    bed_status=bed_status,
+                    sleep_status=sleep_status,
+                    timestamp=timestamp,
+                    signal=signal,
+                    sos_type=sos_type
+                )
+                points.append(point)
+                
+            except Exception as e:
+                logger.warning(f"Failed to parse data point: {e}")
+                continue
+        
+        return points
+    
+    def _parse_int(self, value: Any, default: int = 0) -> int:
+        """Parse integer from various formats"""
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return default
     
     def _aggregate_session_data(
         self,
@@ -417,9 +517,8 @@ class RealtimeDataService:
         
         for entry in session_data:
             hr = entry.get("heart_rate") or entry.get("heartRate")
-            br = entry.get("breathing") or entry.get("breathing")
+            br = entry.get("breathing")
             
-            # Convert to int if string
             if hr:
                 try:
                     hr_val = int(hr) if int(hr) > 0 else None
@@ -495,6 +594,96 @@ class RealtimeDataService:
         }
         
         return summary
+    
+    # ===========================================
+    # Report-based Calculation
+    # ===========================================
+    
+    async def process_manufacturer_report(
+        self,
+        device_code: str,
+        report_data: dict
+    ) -> Optional[MeasurementRecord]:
+        """
+        Process a manufacturer's report and calculate derived metrics
+        
+        Used when receiving reports via Webhook instead of raw data.
+        
+        Args:
+            device_code: Device code
+            report_data: Report data from manufacturer
+        
+        Returns:
+            Created or updated MeasurementRecord
+        """
+        # Get device
+        result = await self.db.execute(
+            select(Device).where(Device.device_code == device_code)
+        )
+        device = result.scalar_one_or_none()
+        
+        if not device:
+            logger.warning(f"Device not found for report: {device_code}")
+            return None
+        
+        # Check for existing active measurement
+        active_measurement = await self.get_active_measurement(device_code)
+        
+        if active_measurement:
+            record = active_measurement
+        else:
+            # Create new record
+            record = MeasurementRecord(
+                device_id=device.id,
+                status="processing"
+            )
+            self.db.add(record)
+            await self.db.flush()
+        
+        # Calculate derived metrics from report
+        try:
+            derived_metrics = self.algorithm_engine.calculate_from_report(report_data)
+            record.derived_metrics = derived_metrics.to_dict()
+            record.health_score = derived_metrics.overall_health_score
+            logger.info(f"Calculated derived metrics from report: Score={derived_metrics.overall_health_score}")
+        except Exception as e:
+            logger.error(f"Failed to calculate metrics from report: {e}")
+        
+        # Store raw report data
+        record.raw_data_summary = report_data
+        
+        # Parse times
+        if report_data.get("startTime"):
+            try:
+                record.start_time = datetime.strptime(
+                    report_data["startTime"], "%Y-%m-%d %H:%M:%S"
+                )
+            except ValueError:
+                pass
+        
+        if report_data.get("endTime"):
+            try:
+                record.end_time = datetime.strptime(
+                    report_data["endTime"], "%Y-%m-%d %H:%M:%S"
+                )
+            except ValueError:
+                pass
+        
+        if report_data.get("totalTimes"):
+            record.duration_minutes = int(report_data["totalTimes"])
+        
+        if report_data.get("score"):
+            try:
+                record.health_score = int(report_data["score"])
+            except (ValueError, TypeError):
+                pass
+        
+        record.status = "processing"
+        
+        await self.db.commit()
+        await self.db.refresh(record)
+        
+        return record
     
     # ===========================================
     # Active Measurement Record

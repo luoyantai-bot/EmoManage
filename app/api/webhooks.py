@@ -302,16 +302,18 @@ async def trigger_analysis(
     db: AsyncSession
 ) -> None:
     """
-    Trigger AI analysis for a measurement record
+    Trigger analysis for a measurement record
     
-    This is a placeholder for the actual AI analysis.
-    In production, this would call the AI service.
+    1. Calculate derived metrics using algorithm engine
+    2. Generate AI analysis (placeholder for Phase 4)
+    3. Update record status
     
     Args:
         record_id: Measurement record ID
         db: Database session
     """
     from uuid import UUID
+    from app.services.algorithm_engine import MockAlgorithmEngine
     
     try:
         # Get record
@@ -324,22 +326,55 @@ async def trigger_analysis(
             logger.warning(f"Record not found for analysis: {record_id}")
             return
         
-        # TODO: Call AI service for analysis
-        # For now, just mark as completed
+        # Calculate derived metrics using algorithm engine
+        engine = MockAlgorithmEngine()
+        
+        if record.raw_data_summary:
+            # Use report-based calculation
+            try:
+                derived = engine.calculate_from_report(record.raw_data_summary)
+                record.derived_metrics = derived.to_dict()
+                record.health_score = derived.overall_health_score
+                logger.info(f"Calculated derived metrics: score={derived.overall_health_score}, "
+                           f"stress={derived.stress_index}, HRV={derived.hrv_score}")
+            except Exception as e:
+                logger.error(f"Failed to calculate derived metrics: {e}")
+        
+        # Mark as completed for now
         record.status = "completed"
         
-        # Generate placeholder analysis
-        record.ai_analysis = """
-# Health Analysis Report
+        # Generate placeholder AI analysis
+        if record.derived_metrics:
+            metrics = record.derived_metrics
+            record.ai_analysis = f"""# Health Analysis Report
 
 ## Summary
 This is an automated health analysis based on the detected physiological parameters.
 
-## Heart Rate Analysis
-- Based on the detected heart rate patterns, the cardiovascular function appears normal.
+## Key Metrics
 
-## Breathing Analysis
-- Breathing patterns indicate regular respiratory function.
+### Heart Rate Analysis
+- Average Heart Rate: {metrics.get('avg_heart_rate', 'N/A')} bpm
+- Heart Rate Range: {metrics.get('min_heart_rate', 'N/A')} - {metrics.get('max_heart_rate', 'N/A')} bpm
+
+### Breathing Analysis
+- Average Breathing Rate: {metrics.get('avg_breathing', 'N/A')} breaths/min
+
+### HRV (Heart Rate Variability)
+- HRV Score: {metrics.get('hrv_score', 'N/A')} ms ({metrics.get('hrv_level', 'N/A')})
+
+### Stress Level
+- Stress Index: {metrics.get('stress_index', 'N/A')}% ({metrics.get('stress_level', 'N/A')})
+
+### Fatigue Level
+- Fatigue Index: {metrics.get('fatigue_index', 'N/A')}% ({metrics.get('fatigue_level', 'N/A')})
+
+## TCM Constitution Analysis
+- Primary Constitution: {metrics.get('tcm_primary_constitution', 'N/A')} (Score: {metrics.get('tcm_primary_score', 'N/A')})
+- Secondary Constitution: {metrics.get('tcm_secondary_constitution', 'N/A')} (Score: {metrics.get('tcm_secondary_score', 'N/A')})
+
+## Overall Health Score
+**{metrics.get('overall_health_score', 'N/A')}/100**
 
 ## Recommendations
 1. Maintain regular sleep schedule
@@ -347,18 +382,7 @@ This is an automated health analysis based on the detected physiological paramet
 3. Follow up with healthcare provider for any concerns
 
 *Note: This is an automated analysis. Please consult a healthcare professional for medical advice.*
-        """.strip()
-        
-        # Calculate derived metrics (placeholder)
-        if record.raw_data_summary:
-            hr_data = record.raw_data_summary.get("heart_rate", {})
-            if hr_data.get("avg"):
-                # Simple HRV estimation (placeholder)
-                record.derived_metrics = {
-                    "hrv": 45.0,  # Placeholder
-                    "stress_index": 30,
-                    "relaxation_index": 70,
-                }
+"""
         
         await db.commit()
         
