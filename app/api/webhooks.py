@@ -305,7 +305,7 @@ async def trigger_analysis(
     Trigger analysis for a measurement record
     
     1. Calculate derived metrics using algorithm engine
-    2. Generate AI analysis (placeholder for Phase 4)
+    2. Generate AI analysis using SiliconFlow API
     3. Update record status
     
     Args:
@@ -313,12 +313,16 @@ async def trigger_analysis(
         db: Database session
     """
     from uuid import UUID
+    from sqlalchemy.orm import selectinload
     from app.services.algorithm_engine import MockAlgorithmEngine
+    from app.services.report_generation_service import report_generation_service
     
     try:
-        # Get record
+        # Get record with user info
         result = await db.execute(
-            select(MeasurementRecord).where(MeasurementRecord.id == UUID(record_id))
+            select(MeasurementRecord)
+            .options(selectinload(MeasurementRecord.user))
+            .where(MeasurementRecord.id == UUID(record_id))
         )
         record = result.scalar_one_or_none()
         
@@ -339,50 +343,38 @@ async def trigger_analysis(
                            f"stress={derived.stress_index}, HRV={derived.hrv_score}")
             except Exception as e:
                 logger.error(f"Failed to calculate derived metrics: {e}")
+                # Continue with empty metrics
         
-        # Mark as completed for now
-        record.status = "completed"
-        
-        # Generate placeholder AI analysis
+        # Generate AI analysis using report generation service
         if record.derived_metrics:
-            metrics = record.derived_metrics
-            record.ai_analysis = f"""# Health Analysis Report
-
-## Summary
-This is an automated health analysis based on the detected physiological parameters.
-
-## Key Metrics
-
-### Heart Rate Analysis
-- Average Heart Rate: {metrics.get('avg_heart_rate', 'N/A')} bpm
-- Heart Rate Range: {metrics.get('min_heart_rate', 'N/A')} - {metrics.get('max_heart_rate', 'N/A')} bpm
-
-### Breathing Analysis
-- Average Breathing Rate: {metrics.get('avg_breathing', 'N/A')} breaths/min
-
-### HRV (Heart Rate Variability)
-- HRV Score: {metrics.get('hrv_score', 'N/A')} ms ({metrics.get('hrv_level', 'N/A')})
-
-### Stress Level
-- Stress Index: {metrics.get('stress_index', 'N/A')}% ({metrics.get('stress_level', 'N/A')})
-
-### Fatigue Level
-- Fatigue Index: {metrics.get('fatigue_index', 'N/A')}% ({metrics.get('fatigue_level', 'N/A')})
-
-## TCM Constitution Analysis
-- Primary Constitution: {metrics.get('tcm_primary_constitution', 'N/A')} (Score: {metrics.get('tcm_primary_score', 'N/A')})
-- Secondary Constitution: {metrics.get('tcm_secondary_constitution', 'N/A')} (Score: {metrics.get('tcm_secondary_score', 'N/A')})
-
-## Overall Health Score
-**{metrics.get('overall_health_score', 'N/A')}/100**
-
-## Recommendations
-1. Maintain regular sleep schedule
-2. Stay hydrated
-3. Follow up with healthcare provider for any concerns
-
-*Note: This is an automated analysis. Please consult a healthcare professional for medical advice.*
-"""
+            try:
+                # Get user info if available
+                user_info = {}
+                if record.user:
+                    user_info = {
+                        "name": record.user.name or "未知用户",
+                        "gender": record.user.gender or "unknown",
+                        "age": record.user.age or 0,
+                        "height": record.user.height or 0,
+                        "weight": record.user.weight or 0,
+                        "bmi": record.user.bmi
+                    }
+                
+                # Generate AI report
+                record.ai_analysis = await report_generation_service.generate_full_report(
+                    str(record.id),
+                    user_info,
+                    record.derived_metrics
+                )
+                logger.info(f"Generated AI analysis for record: {record_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to generate AI analysis: {e}")
+                # Use fallback report
+                record.ai_analysis = _generate_fallback_report(record.derived_metrics)
+        
+        # Mark as completed
+        record.status = "completed"
         
         await db.commit()
         
@@ -390,6 +382,56 @@ This is an automated health analysis based on the detected physiological paramet
         
     except Exception as e:
         logger.error(f"Failed to trigger analysis: {e}")
+
+
+def _generate_fallback_report(metrics: dict) -> str:
+    """
+    Generate fallback report when AI service is unavailable
+    
+    Args:
+        metrics: Derived metrics dictionary
+    
+    Returns:
+        Markdown formatted report
+    """
+    return f"""# 健康分析报告
+
+## 概述
+本报告基于智能坐垫检测数据分析生成。由于AI服务暂时不可用，此为简化版本。
+
+## 关键指标
+
+### 心血管系统
+- 平均心率：{metrics.get('avg_heart_rate', 'N/A')} 次/分
+- 心率范围：{metrics.get('min_heart_rate', 'N/A')} - {metrics.get('max_heart_rate', 'N/A')} 次/分
+
+### 呼吸系统
+- 平均呼吸：{metrics.get('avg_breathing', 'N/A')} 次/分
+
+### 心率变异性 (HRV)
+- HRV评分：{metrics.get('hrv_score', 'N/A')} ms（{metrics.get('hrv_level', 'N/A')}）
+
+### 压力评估
+- 压力指数：{metrics.get('stress_index', 'N/A')}%（{metrics.get('stress_level', 'N/A')}）
+
+### 疲劳评估
+- 疲劳指数：{metrics.get('fatigue_index', 'N/A')}%（{metrics.get('fatigue_level', 'N/A')}）
+
+## 中医体质评估
+- 主要体质：{metrics.get('tcm_primary_constitution', 'N/A')}（{metrics.get('tcm_primary_score', 'N/A')}分）
+- 次要体质：{metrics.get('tcm_secondary_constitution', 'N/A')}（{metrics.get('tcm_secondary_score', 'N/A')}分）
+
+## 综合健康评分
+**{metrics.get('overall_health_score', 'N/A')}/100**
+
+## 建议
+1. 保持规律作息
+2. 适量运动
+3. 如有持续不适，请咨询医生
+
+---
+*注意： 本报告由系统自动生成，仅供参考。如有健康疑虑，请咨询专业医生。*
+"""
 
 
 # ===========================================
