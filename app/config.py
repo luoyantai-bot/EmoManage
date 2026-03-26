@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # ===========================================
     # 应用基础配置
     # ===========================================
-    APP_NAME: str = "情绪管理与智能坐垫干预系统"
+    APP_NAME: str = "Emotion Cushion System"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
     

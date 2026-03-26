@@ -110,6 +110,11 @@ from app.schemas.measurement import (
     MeasurementResponse,
     MeasurementListResponse,
 )
+from app.schemas.webhook import (
+    RealtimeDataWebhook,
+    ReportDataWebhook,
+    WebhookResponse,
+)
 
 __all__ = [
     # 通用响应
@@ -140,4 +145,8 @@ __all__ = [
     "MeasurementUpdate",
     "MeasurementResponse",
     "MeasurementListResponse",
+    # Webhook Schemas
+    "RealtimeDataWebhook",
+    "ReportDataWebhook",
+    "WebhookResponse",
 ]

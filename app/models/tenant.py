@@ -1,11 +1,12 @@
 # ===========================================
-# 租户/商家模型
+# Tenant/Merchant Model
 # ===========================================
 """
-Tenant 模型定义
+Tenant model definition.
 
-租户是SaaS系统的核心概念，每个租户代表一个使用系统的商家/机构。
-支持多种商家类型：中医馆、酒店、养生中心等。
+Tenant is the core concept of the SaaS system. Each tenant represents
+a merchant/institution using the system. Supports multiple merchant types:
+traditional Chinese medicine clinics, hotels, wellness centers, etc.
 """
 
 from datetime import datetime
@@ -21,59 +22,69 @@ from app.models import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.device import Device
+    from app.models.alert import AlertRecord
+
+
+# Valid tenant types
+TENANT_TYPES = ["chinese_medicine", "hotel", "wellness_center"]
+TENANT_TYPE_LABELS = {
+    "chinese_medicine": "Traditional Chinese Medicine Clinic",
+    "hotel": "Hotel",
+    "wellness_center": "Wellness Center",
+}
 
 
 class Tenant(Base, TimestampMixin):
     """
-    租户/商家表
+    Tenant/Merchant table.
     
-    属性:
-        id: UUID主键，自动生成
-        name: 商家名称，必填
-        type: 商家类型 (chinese_medicine/hotel/wellness_center)
-        contact_phone: 联系电话
-        address: 商家地址
-        created_at: 创建时间
-        updated_at: 更新时间
+    Attributes:
+        id: UUID primary key, auto-generated
+        name: Merchant name, required
+        type: Merchant type (chinese_medicine/hotel/wellness_center)
+        contact_phone: Contact phone number
+        address: Merchant address
+        created_at: Creation time
+        updated_at: Update time
     """
     __tablename__ = "tenants"
-    __table_args__ = {"comment": "租户/商家表"}
+    __table_args__ = {"comment": "Tenant/Merchant table"}
 
-    # 主键
+    # Primary key
     id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid4,
-        comment="租户ID"
+        comment="Tenant ID"
     )
 
-    # 基本信息
+    # Basic info
     name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        comment="商家名称"
+        comment="Merchant name"
     )
     
     type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
         default="wellness_center",
-        comment="商家类型: chinese_medicine/hotel/wellness_center"
+        comment="Merchant type: chinese_medicine/hotel/wellness_center"
     )
     
     contact_phone: Mapped[Optional[str]] = mapped_column(
         String(20),
         nullable=True,
-        comment="联系电话"
+        comment="Contact phone"
     )
     
     address: Mapped[Optional[str]] = mapped_column(
         String(500),
         nullable=True,
-        comment="商家地址"
+        comment="Merchant address"
     )
 
-    # 关联关系
+    # Relationships
     users: Mapped[List["User"]] = relationship(
         "User",
         back_populates="tenant",
@@ -87,6 +98,13 @@ class Tenant(Base, TimestampMixin):
         cascade="all, delete-orphan",
         lazy="selectin"
     )
+    
+    alerts: Mapped[List["AlertRecord"]] = relationship(
+        "AlertRecord",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
 
     def __repr__(self) -> str:
         return f"<Tenant(id={self.id}, name='{self.name}', type='{self.type}')>"
@@ -94,8 +112,7 @@ class Tenant(Base, TimestampMixin):
 
 @event.listens_for(Tenant.type, 'set')
 def validate_tenant_type(target, value, oldvalue, initiator):
-    """验证商家类型的有效性"""
-    valid_types = ["chinese_medicine", "hotel", "wellness_center"]
-    if value not in valid_types:
-        raise ValueError(f"无效的商家类型: {value}，有效值为: {valid_types}")
+    """Validate tenant type."""
+    if value not in TENANT_TYPES:
+        raise ValueError(f"Invalid tenant type: {value}, valid values: {TENANT_TYPES}")
     return value

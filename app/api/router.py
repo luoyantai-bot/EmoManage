@@ -1,10 +1,10 @@
 # ===========================================
-# API 总路由配置
+# API Router Configuration
 # ===========================================
 """
-统一注册所有API路由
+Register all API routes
 
-所有路由统一使用 /api/v1 前缀
+All routes use /api/v1 prefix
 """
 
 from fastapi import APIRouter
@@ -13,32 +13,46 @@ from app.api.tenants import router as tenants_router
 from app.api.users import router as users_router
 from app.api.devices import router as devices_router
 from app.api.measurements import router as measurements_router
+from app.api.webhooks import router as webhooks_router
+from app.api.realtime import router as realtime_router
 
 
-# 创建总路由器
+# Create main router
 api_router = APIRouter()
 
-# 注册各模块路由
+# Register module routes
 api_router.include_router(
     tenants_router,
     prefix="/tenants",
-    tags=["租户管理"]
+    tags=["Tenant Management"]
 )
 
 api_router.include_router(
     users_router,
     prefix="/users",
-    tags=["用户管理"]
+    tags=["User Management"]
 )
 
 api_router.include_router(
     devices_router,
     prefix="/devices",
-    tags=["设备管理"]
+    tags=["Device Management"]
 )
 
 api_router.include_router(
     measurements_router,
     prefix="/measurements",
-    tags=["检测记录管理"]
+    tags=["Measurement Records"]
+)
+
+api_router.include_router(
+    webhooks_router,
+    prefix="/webhook",
+    tags=["Webhooks"]
+)
+
+api_router.include_router(
+    realtime_router,
+    prefix="/realtime",
+    tags=["Real-time Data"]
 )

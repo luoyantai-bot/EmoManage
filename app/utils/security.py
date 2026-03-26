@@ -1,13 +1,14 @@
 # ===========================================
-# 安全相关工具函数
+# Security Utilities
 # ===========================================
 """
-安全工具模块
+Security utility functions.
 
-包含:
-- MD5签名计算和验证
-- 随机字符串生成
-- 密码处理
+Contains:
+- MD5 signature calculation and verification
+- Random string generation
+- Password hashing
+- Sensitive data masking
 """
 
 import hashlib
@@ -16,21 +17,54 @@ import string
 from typing import Optional
 
 
+# ===========================================
+# Webhook Signature Verification
+# ===========================================
+
 def calculate_md5(data: str) -> str:
     """
-    计算字符串的MD5哈希值
+    Calculate MD5 hash of a string.
     
     Args:
-        data: 原始字符串
+        data: Input string
     
     Returns:
-        MD5哈希值(32位小写十六进制)
+        MD5 hash (32-char lowercase hex)
     
-    示例:
+    Example:
         >>> calculate_md5("hello")
         '5d41402abc4b2a76b9719d911017c592'
     """
     return hashlib.md5(data.encode()).hexdigest()
+
+
+def verify_webhook_sign(secret: str, timestamp: str, sign: str) -> bool:
+    """
+    Verify webhook signature from manufacturer.
+    
+    Signature algorithm: sign = md5(secret + timestamp)
+    
+    Args:
+        secret: Webhook secret from environment variable
+        timestamp: Unix timestamp from webhook payload
+        sign: Signature to verify
+    
+    Returns:
+        True if signature is valid
+    
+    Example:
+        >>> secret = "my_webhook_secret"
+        >>> timestamp = "1750759933"
+        >>> expected_sign = calculate_md5(secret + timestamp)
+        >>> verify_webhook_sign(secret, timestamp, expected_sign)
+        True
+    """
+    if not secret or not timestamp or not sign:
+        return False
+    
+    expected = calculate_md5(secret + timestamp)
+    # Use constant-time comparison to prevent timing attacks
+    return secrets.compare_digest(expected, sign)
 
 
 def verify_md5_signature(
@@ -39,33 +73,29 @@ def verify_md5_signature(
     secret: Optional[str] = None
 ) -> bool:
     """
-    验证MD5签名
+    Verify MD5 signature.
     
-    用于验证厂家Webhook请求的签名
+    For general MD5 signature verification.
     
     Args:
-        data: 原始数据字符串
-        signature: 待验证的签名
-        secret: 签名密钥(可选，拼接在数据后面)
+        data: Original data string
+        signature: Signature to verify
+        secret: Optional secret to append
     
     Returns:
-        签名是否有效
-    
-    示例:
-        >>> data = '{"deviceCode": "TA001"}'
-        >>> secret = "my_secret"
-        >>> expected = calculate_md5(data + secret)
-        >>> verify_md5_signature(data, expected, secret)
-        True
+        True if signature is valid
     """
     if secret:
         calculated = calculate_md5(data + secret)
     else:
         calculated = calculate_md5(data)
     
-    # 使用常量时间比较，防止时序攻击
     return secrets.compare_digest(calculated, signature)
 
+
+# ===========================================
+# Random String Generation
+# ===========================================
 
 def generate_random_string(
     length: int = 32,
@@ -73,25 +103,22 @@ def generate_random_string(
     include_special: bool = False
 ) -> str:
     """
-    生成随机字符串
+    Generate a secure random string.
     
-    用于生成API密钥、随机密码等
+    Useful for API keys, random passwords, etc.
     
     Args:
-        length: 字符串长度
-        include_digits: 是否包含数字
-        include_special: 是否包含特殊字符
+        length: String length
+        include_digits: Include digits
+        include_special: Include special characters
     
     Returns:
-        随机字符串
+        Random string
     
-    示例:
+    Example:
         >>> generate_random_string(16)
         'aB3dE7fG9hJ2kL5m'
-        >>> generate_random_string(32, include_special=True)
-        'aB#dE7fG9hJ@kL5mN8pQ1rS4tU6vW0xY'
     """
-    # 基础字符集：大小写字母
     chars = string.ascii_letters
     
     if include_digits:
@@ -100,24 +127,27 @@ def generate_random_string(
     if include_special:
         chars += "!@#$%^&*()_+-=[]{}|;:,.<>?"
     
-    # 使用secrets模块生成安全的随机字符串
     return ''.join(secrets.choice(chars) for _ in range(length))
 
 
+# ===========================================
+# Password Utilities
+# ===========================================
+
 def hash_password(password: str, salt: Optional[str] = None) -> str:
     """
-    对密码进行哈希处理
+    Hash a password with salt.
     
-    使用SHA256算法，配合盐值增强安全性
+    Uses SHA256 with salt for security.
     
     Args:
-        password: 原始密码
-        salt: 盐值(可选，不传则自动生成)
+        password: Plain password
+        salt: Optional salt (auto-generated if not provided)
     
     Returns:
-        哈希后的密码(格式: salt$hash)
+        Hashed password (format: salt$hash)
     
-    示例:
+    Example:
         >>> hashed = hash_password("mypassword123")
         >>> verify_password("mypassword123", hashed)
         True
@@ -125,7 +155,6 @@ def hash_password(password: str, salt: Optional[str] = None) -> str:
     if salt is None:
         salt = generate_random_string(16, include_special=False)
     
-    # 组合密码和盐值进行哈希
     hash_value = hashlib.sha256((password + salt).encode()).hexdigest()
     
     return f"{salt}${hash_value}"
@@ -133,21 +162,14 @@ def hash_password(password: str, salt: Optional[str] = None) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     """
-    验证密码
+    Verify a password against its hash.
     
     Args:
-        password: 待验证的密码
-        hashed: 存储的哈希密码(格式: salt$hash)
+        password: Password to verify
+        hashed: Stored hash (format: salt$hash)
     
     Returns:
-        密码是否正确
-    
-    示例:
-        >>> hashed = hash_password("mypassword123")
-        >>> verify_password("mypassword123", hashed)
-        True
-        >>> verify_password("wrongpassword", hashed)
-        False
+        True if password is correct
     """
     try:
         salt, hash_value = hashed.split('$')
@@ -159,26 +181,42 @@ def verify_password(password: str, hashed: str) -> bool:
     return secrets.compare_digest(calculated, hash_value)
 
 
+# ===========================================
+# Data Masking
+# ===========================================
+
 def mask_sensitive_data(data: str, visible_chars: int = 4) -> str:
     """
-    对敏感数据进行脱敏处理
-    
-    用于日志输出等场景
+    Mask sensitive data for logging.
     
     Args:
-        data: 原始数据
-        visible_chars: 可见字符数
+        data: Original data
+        visible_chars: Number of visible characters
     
     Returns:
-        脱敏后的数据
+        Masked data
     
-    示例:
+    Example:
         >>> mask_sensitive_data("13800138000")
         '1380********'
-        >>> mask_sensitive_data("my_api_key_12345")
-        'my_a***********'
     """
     if len(data) <= visible_chars:
         return '*' * len(data)
     
     return data[:visible_chars] + '*' * (len(data) - visible_chars)
+
+
+def mask_phone(phone: str) -> str:
+    """Mask phone number (show first 3 and last 4 digits)."""
+    if not phone or len(phone) < 7:
+        return mask_sensitive_data(phone, 2)
+    
+    return f"{phone[:3]}****{phone[-4:]}"
+
+
+def mask_api_key(api_key: str) -> str:
+    """Mask API key (show first 4 and last 4 characters)."""
+    if not api_key or len(api_key) < 12:
+        return mask_sensitive_data(api_key, 4)
+    
+    return f"{api_key[:4]}...{api_key[-4:]}"

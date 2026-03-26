@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from loguru import logger
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -24,7 +25,7 @@ from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.models import Base
-from sqlalchemy import text
+
 
 # ===========================================
 # 数据库引擎配置

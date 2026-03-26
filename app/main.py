@@ -1,15 +1,15 @@
 # ===========================================
-# FastAPI 应用入口
+# FastAPI Application Entry Point
 # ===========================================
 """
-情绪管理与智能坐垫干预系统 - 主应用
+Emotion Management and Smart Cushion Intervention System - Main Application
 
-主要功能:
-- FastAPI应用配置
-- CORS中间件
-- 路由注册
-- 异常处理
-- 启动/关闭事件
+Main features:
+- FastAPI application configuration
+- CORS middleware
+- Route registration
+- Exception handling
+- Startup/shutdown events
 """
 
 import sys
@@ -29,15 +29,15 @@ from app.schemas import BaseResponse
 
 
 # ===========================================
-# 日志配置
+# Logging Configuration
 # ===========================================
 
 def setup_logging():
-    """配置Loguru日志"""
-    # 移除默认处理器
+    """Configure Loguru logging"""
+    # Remove default handler
     logger.remove()
     
-    # 添加控制台处理器
+    # Add console handler
     logger.add(
         sys.stdout,
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
@@ -45,7 +45,7 @@ def setup_logging():
         colorize=True,
     )
     
-    # 添加文件处理器(生产环境)
+    # Add file handler (production)
     if not settings.DEBUG:
         logger.add(
             "logs/app_{time:YYYY-MM-DD}.log",
@@ -57,41 +57,60 @@ def setup_logging():
 
 
 # ===========================================
-# 应用生命周期
+# Application Lifecycle
 # ===========================================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    应用生命周期管理
+    Application lifecycle management
     
-    启动时:
-    - 配置日志
-    - 测试数据库连接
-    - 打印路由信息
+    Startup:
+    - Configure logging
+    - Test database connection
+    - Initialize Redis connection
+    - Start background tasks
     
-    关闭时:
-    - 关闭数据库连接
+    Shutdown:
+    - Close database connection
+    - Close Redis connection
     """
-    # 启动
+    # Startup
     setup_logging()
-    logger.info(f"🚀 启动 {settings.APP_NAME} v{settings.APP_VERSION}")
+    logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     
-    # 测试数据库连接
+    # Test database connection
     if await test_connection():
-        logger.info("✅ 数据库连接成功")
+        logger.info("Database connection successful")
     else:
-        logger.warning("⚠️ 数据库连接失败，请检查配置")
+        logger.warning("Database connection failed, please check configuration")
     
-    # 开发模式下初始化数据库表(生产环境应使用Alembic)
+    # Initialize Redis connection
+    from app.services.redis_client import redis_client
+    try:
+        await redis_client.connect()
+        logger.info("Redis connection successful")
+    except Exception as e:
+        logger.warning(f"Redis connection failed: {e}")
+    
+    # Start data persistence background task
+    from app.services.data_persistence_service import get_persistence_service
+    try:
+        persistence_service = await get_persistence_service(redis_client)
+        await persistence_service.start_background_task()
+        logger.info("Data persistence task started")
+    except Exception as e:
+        logger.warning(f"Failed to start persistence task: {e}")
+    
+    # Initialize database tables in development mode
     if settings.DEBUG:
         try:
             await init_db()
         except Exception as e:
-            logger.warning(f"数据库表初始化警告: {e}")
+            logger.warning(f"Database table initialization warning: {e}")
     
-    # 打印注册的路由
-    logger.info("📋 注册的路由:")
+    # Print registered routes
+    logger.info("Registered routes:")
     for route in app.routes:
         if hasattr(route, "methods") and hasattr(route, "path"):
             methods = ", ".join(route.methods)
@@ -99,33 +118,53 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # 关闭
+    # Shutdown
+    # Stop persistence task
+    from app.services.data_persistence_service import data_persistence_service
+    if data_persistence_service:
+        await data_persistence_service.stop_background_task()
+    
+    # Close Redis connection
+    await redis_client.disconnect()
+    
+    # Close database connection
     await close_db()
-    logger.info("👋 应用已关闭")
+    logger.info("Application shutdown complete")
 
 
 # ===========================================
-# 创建FastAPI应用
+# Create FastAPI Application
 # ===========================================
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="""
-## 情绪管理与智能坐垫干预系统 API
+## Emotion Management and Smart Cushion Intervention System API
 
-智能坐垫硬件采集用户心率、呼吸等生理数据，通过本系统进行处理和分析。
+Smart cushion hardware collects user heart rate, breathing and other physiological data,
+processed and analyzed through this system.
 
-### 主要功能
-- 多租户SaaS架构
-- 智能坐垫数据采集与处理
-- HRV、压力指数等高级指标计算
-- AI大模型生成健康报告
+### Main Features
+- Multi-tenant SaaS architecture
+- Smart cushion data collection and processing
+- HRV, stress index and other advanced metrics calculation
+- AI large model health report generation
 
-### 商家类型
-- 中医馆 (chinese_medicine)
-- 酒店 (hotel)
-- 养生中心 (wellness_center)
+### Merchant Types
+- Traditional Chinese Medicine Clinic (chinese_medicine)
+- Hotel (hotel)
+- Wellness Center (wellness_center)
+
+### Webhook Endpoints
+- POST /api/v1/webhook/realtime-data - Receive real-time device data
+- POST /api/v1/webhook/report - Receive sleep reports
+
+### Real-time Data Endpoints
+- GET /api/v1/realtime/{device_code}/latest - Get latest data
+- GET /api/v1/realtime/{device_code}/stream - SSE real-time stream
+- POST /api/v1/realtime/{device_code}/start - Start measurement
+- POST /api/v1/realtime/{device_code}/stop - End measurement
     """,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -135,7 +174,7 @@ app = FastAPI(
 
 
 # ===========================================
-# CORS中间件
+# CORS Middleware
 # ===========================================
 
 app.add_middleware(
@@ -148,23 +187,23 @@ app.add_middleware(
 
 
 # ===========================================
-# 异常处理
+# Exception Handlers
 # ===========================================
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
-    全局异常处理器
+    Global exception handler
     
-    捕获所有未处理的异常，返回统一格式的错误响应
+    Catches all unhandled exceptions and returns standardized error response
     """
-    logger.error(f"未处理的异常: {exc}", exc_info=True)
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
     
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=jsonable_encoder({
             "code": 500,
-            "msg": "服务器内部错误" if not settings.DEBUG else str(exc),
+            "msg": "Internal server error" if not settings.DEBUG else str(exc),
             "data": None
         })
     )
@@ -173,11 +212,11 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
     """
-    ValueError异常处理器
+    ValueError exception handler
     
-    处理数据验证错误
+    Handles data validation errors
     """
-    logger.warning(f"数据验证错误: {exc}")
+    logger.warning(f"Data validation error: {exc}")
     
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
@@ -190,39 +229,44 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
 
 
 # ===========================================
-# 健康检查端点
+# Health Check Endpoint
 # ===========================================
 
-@app.get("/health", tags=["健康检查"], summary="健康检查")
+@app.get("/health", tags=["Health Check"], summary="Health check")
 async def health_check() -> Dict[str, Any]:
     """
-    健康检查端点
+    Health check endpoint
     
-    用于监控系统、负载均衡等场景
+    Used for monitoring, load balancing, etc.
     
     Returns:
-        健康状态信息
+        Health status information
     """
+    # Check Redis connection
+    from app.services.redis_client import redis_client
+    redis_status = "connected" if redis_client._client else "disconnected"
+    
     return {
         "code": 200,
         "msg": "healthy",
         "data": {
             "app_name": settings.APP_NAME,
             "version": settings.APP_VERSION,
-            "status": "running"
+            "status": "running",
+            "redis": redis_status
         }
     }
 
 
-@app.get("/", tags=["根路径"], summary="API信息")
+@app.get("/", tags=["Root"], summary="API information")
 async def root() -> Dict[str, Any]:
     """
-    根路径
+    Root path
     
-    返回API基本信息和文档链接
+    Returns basic API information and documentation links
     
     Returns:
-        API信息
+        API information
     """
     return {
         "code": 200,
@@ -238,14 +282,14 @@ async def root() -> Dict[str, Any]:
 
 
 # ===========================================
-# 注册路由
+# Register Routes
 # ===========================================
 
 app.include_router(api_router, prefix="/api/v1")
 
 
 # ===========================================
-# 开发服务器入口
+# Development Server Entry
 # ===========================================
 
 if __name__ == "__main__":
