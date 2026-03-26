@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from app.models.user import User
     from app.models.device import Device
     from app.models.alert import AlertRecord
+    from app.models.intervention_rule import InterventionRule
+    from app.models.intervention_log import InterventionLog
+    from app.models.activity import Activity
 
 
 # Valid tenant types
@@ -101,6 +104,27 @@ class Tenant(Base, TimestampMixin):
     
     alerts: Mapped[List["AlertRecord"]] = relationship(
         "AlertRecord",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    
+    intervention_rules: Mapped[List["InterventionRule"]] = relationship(
+        "InterventionRule",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    
+    intervention_logs: Mapped[List["InterventionLog"]] = relationship(
+        "InterventionLog",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    
+    activities: Mapped[List["Activity"]] = relationship(
+        "Activity",
         back_populates="tenant",
         cascade="all, delete-orphan",
         lazy="selectin"

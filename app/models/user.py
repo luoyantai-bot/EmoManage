@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from app.models.tenant import Tenant
     from app.models.measurement import MeasurementRecord
     from app.models.alert import AlertRecord
+    from app.models.activity_push_record import ActivityPushRecord
 
 
 # Valid genders
@@ -130,6 +131,13 @@ class User(Base, TimestampMixin):
     
     alerts: Mapped[List["AlertRecord"]] = relationship(
         "AlertRecord",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    
+    activity_push_records: Mapped[List["ActivityPushRecord"]] = relationship(
+        "ActivityPushRecord",
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="selectin"

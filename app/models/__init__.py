@@ -52,6 +52,10 @@ from app.models.device import Device
 from app.models.measurement import MeasurementRecord
 from app.models.alert import AlertRecord
 from app.models.raw_data import RawDeviceData
+from app.models.intervention_rule import InterventionRule
+from app.models.intervention_log import InterventionLog
+from app.models.activity import Activity
+from app.models.activity_push_record import ActivityPushRecord
 
 __all__ = [
     "Base",
@@ -62,4 +66,8 @@ __all__ = [
     "MeasurementRecord",
     "AlertRecord",
     "RawDeviceData",
+    "InterventionRule",
+    "InterventionLog",
+    "Activity",
+    "ActivityPushRecord",
 ]

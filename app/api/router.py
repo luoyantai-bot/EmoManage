@@ -17,6 +17,9 @@ from app.api.webhooks import router as webhooks_router
 from app.api.realtime import router as realtime_router
 from app.api.analysis import router as analysis_router
 from app.api.reports import router as reports_router
+from app.api.dashboard import router as dashboard_router
+from app.api.rules import router as rules_router
+from app.api.activities import router as activities_router
 
 
 # Create main router
@@ -69,4 +72,23 @@ api_router.include_router(
     reports_router,
     prefix="/reports",
     tags=["Health Reports"]
+)
+
+# Phase 5: SaaS Backend
+api_router.include_router(
+    dashboard_router,
+    prefix="/dashboard",
+    tags=["Dashboard"]
+)
+
+api_router.include_router(
+    rules_router,
+    prefix="/rules",
+    tags=["Intervention Rules"]
+)
+
+api_router.include_router(
+    activities_router,
+    prefix="/activities",
+    tags=["Activities"]
 )
